@@ -1,6 +1,7 @@
 package limit
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,7 +25,7 @@ type transactionsResponse struct {
 	Result  []transaction.Transaction `json:"result"`
 }
 
-func GetTransactions(address string, amount uint32, order, apiKey string) ([]transaction.Transaction, error) {
+func GetTransactions(ctx context.Context, address string, amount uint32, order, apiKey string) ([]transaction.Transaction, error) {
 	if err := validateInputs(address, amount, order, apiKey); err != nil {
 		return nil, err
 	}
@@ -36,9 +37,12 @@ func GetTransactions(address string, amount uint32, order, apiKey string) ([]tra
 
 	requestURL := fmt.Sprintf("https://api.gnosisscan.io/api?module=account&action=txlist&address=%s&page=%v&offset=%v&sort=%s&apikey=%s", address, page, amount, order, apiKey)
 
-	fmt.Println(requestURL)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("error creating HTTP request: %w", err)
+	}
 
-	res, err := http.Get(requestURL)
+	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("error sending HTTP request: %w", err)
 	}

@@ -1,6 +1,8 @@
 package filestore
 
 import (
+	"bufio"
+	"context"
 	"fmt"
 	"os"
 
@@ -16,10 +18,12 @@ func SaveTransactions(transactions []transaction.Transaction, filePath string) e
 	}
 	defer file.Close()
 
-	// Write transactions to file
+	writer := bufio.NewWriter(file)
+	defer writer.Flush()
+
 	for _, transaction := range transactions {
 		line := fmt.Sprintf("%s:%s\n", transaction.From, transaction.TimeStamp)
-		if _, err := file.WriteString(line); err != nil {
+		if _, err := writer.WriteString(line); err != nil {
 			return fmt.Errorf("error writing transaction to file: %w", err)
 		}
 	}
@@ -28,22 +32,27 @@ func SaveTransactions(transactions []transaction.Transaction, filePath string) e
 }
 
 // SaveTransactionsAsync writes transactions to a file as they are received from a channel
-func SaveTransactionsAsync(transactionChan <-chan transaction.Transaction, filePath string, doneChan chan<- struct{}) error {
+func SaveTransactionsAsync(ctx context.Context, transactionChan <-chan transaction.Transaction, filePath string, doneChan chan<- struct{}) error {
 	file, err := os.Create(filePath)
 	if err != nil {
 		return fmt.Errorf("error creating file: %w", err)
 	}
 	defer file.Close()
 
-	for transaction := range transactionChan {
-		line := fmt.Sprintf("%s:%s\n", transaction.From, transaction.TimeStamp)
-		if _, err := file.WriteString(line); err != nil {
-			return fmt.Errorf("error writing transaction to file: %w", err)
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case transaction, ok := <-transactionChan:
+			if !ok {
+				doneChan <- struct{}{}
+				return nil
+			}
+
+			line := fmt.Sprintf("%s:%s\n", transaction.From, transaction.TimeStamp)
+			if _, err := file.WriteString(line); err != nil {
+				return fmt.Errorf("error writing transaction to file: %w", err)
+			}
 		}
 	}
-
-	// Signal that writing is done
-	doneChan <- struct{}{}
-
-	return nil
 }

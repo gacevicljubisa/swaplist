@@ -17,7 +17,7 @@ import (
 )
 
 // GetTransactions fetches transactions and sends them to a channel
-func GetTransactions(address string) (<-chan transaction.Transaction, <-chan error) {
+func GetTransactions(ctx context.Context, address string) (<-chan transaction.Transaction, <-chan error) {
 	transactionChan := make(chan transaction.Transaction)
 	errorChan := make(chan error)
 
@@ -26,13 +26,13 @@ func GetTransactions(address string) (<-chan transaction.Transaction, <-chan err
 		defer close(errorChan)
 
 		// Connect to the Gnosis Chain endpoint
-		client, err := ethclient.Dial("https://rpc.gnosischain.com")
+		client, err := ethclient.DialContext(ctx, "https://rpc.gnosischain.com")
 		if err != nil {
 			errorChan <- fmt.Errorf("failed to connect to the Ethereum client: %w", err)
 			return
 		}
 
-		header, err := client.HeaderByNumber(context.Background(), nil)
+		header, err := client.HeaderByNumber(ctx, nil)
 		if err != nil {
 			errorChan <- fmt.Errorf("failed to retrieve the latest block number: %w", err)
 			return
@@ -46,7 +46,7 @@ func GetTransactions(address string) (<-chan transaction.Transaction, <-chan err
 			ToBlock:   header.Number,
 		}
 
-		logs, err := client.FilterLogs(context.Background(), query)
+		logs, err := client.FilterLogs(ctx, query)
 		if err != nil {
 			errorChan <- fmt.Errorf("failed to retrieve logs: %w", err)
 			return
@@ -55,14 +55,13 @@ func GetTransactions(address string) (<-chan transaction.Transaction, <-chan err
 		httpClient := &http.Client{}
 
 		for i, vLog := range logs {
-
-			response, err := getTransactionByHash(context.Background(), httpClient, vLog.TxHash.Hex())
+			response, err := getTransactionByHash(ctx, httpClient, vLog.TxHash.Hex())
 			if err != nil {
 				errorChan <- fmt.Errorf("failed to retrieve transaction: %w", err)
 				return
 			}
 
-			block, err := client.BlockByHash(context.Background(), vLog.BlockHash)
+			block, err := client.BlockByHash(ctx, vLog.BlockHash)
 			if err != nil {
 				errorChan <- fmt.Errorf("failed to retrieve block: %w", err)
 				return
@@ -73,7 +72,7 @@ func GetTransactions(address string) (<-chan transaction.Transaction, <-chan err
 				TimeStamp: strconv.FormatUint(block.Time(), 10),
 			}
 
-			if i > 1000 {
+			if i > 100 {
 				break
 			}
 		}

@@ -1,8 +1,8 @@
 package cmd
 
 import (
-	"fmt"
 	"log"
+	"time"
 
 	"github.com/gacevicljubisa/swaplist/pkg/filestore"
 	"github.com/gacevicljubisa/swaplist/pkg/full"
@@ -16,16 +16,20 @@ func (c *command) initFullCmd() (err error) {
 	cmd := &cobra.Command{
 		Use:   "full",
 		Short: "Retrieve transaction sender addresses with timestamps",
-		Long: `Retrieve a list of all transaction sender addresses with timestamps from the Gnosis Scan API.
-	- Uses Chainstack`,
+		Long: `Retrieve a list of all transaction sender addresses with timestamps.
+	- Uses Chainstack API and Gnois RPC`,
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
-			fmt.Printf("Retrieving addresses for contract %s\n", address)
+			log.Printf("Retrieving addresses for contract %s\n", address)
 
-			transactionChan, errorChan := full.GetTransactions(address)
+			ctx := cmd.Context()
+
+			transactionChan, errorChan := full.GetTransactions(ctx, address)
 			doneChan := make(chan struct{})
+			ticker := time.NewTicker(10 * time.Second)
+			defer ticker.Stop()
 
 			go func() {
-				if err := filestore.SaveTransactionsAsync(transactionChan, "transactions.txt", doneChan); err != nil {
+				if err := filestore.SaveTransactionsAsync(ctx, transactionChan, "transactions.txt", doneChan); err != nil {
 					log.Fatalf("Failed to save transactions: %v", err)
 				}
 			}()
@@ -39,8 +43,13 @@ func (c *command) initFullCmd() (err error) {
 						log.Printf("Error: %v\n", err)
 					}
 				case <-doneChan:
-					fmt.Println("All transactions have been saved.")
+					log.Println("All transactions have been saved.")
 					return
+				case <-ticker.C:
+					log.Println("processing...")
+				case <-ctx.Done():
+					log.Println("Shutting down...")
+					return ctx.Err()
 				}
 
 				if errorChan == nil {

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"log"
 
 	"github.com/gacevicljubisa/swaplist/pkg/filestore"
 	"github.com/gacevicljubisa/swaplist/pkg/limit"
@@ -26,20 +27,20 @@ func (c *command) initLimitCmd() (err error) {
 	- Can specify an API key.
 	- Uses Gnosis Scan API.`,
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
-			fmt.Printf("Retrieving %d addresses for contract %s in %s order...\n", amount, address, order)
+			log.Printf("Retrieving %d addresses for contract %s in %s order...\n", amount, address, order)
 			// Call the function to retrieve addresses
-			response, err := limit.GetTransactions(address, amount, order, apikey)
+			response, err := limit.GetTransactions(cmd.Context(), address, amount, order, apikey)
 			if err != nil {
 				return fmt.Errorf("error retrieving transactions: %w", err)
 			}
 
-			fmt.Println("Number of transactions retrieved:", len(response))
+			log.Println("Number of transactions retrieved:", len(response))
 
-			fmt.Println("saving to file...")
+			log.Println("saving to file...")
 
 			filestore.SaveTransactions(response, "transactions.txt")
 
-			fmt.Println("done")
+			log.Println("done")
 
 			return nil
 		},

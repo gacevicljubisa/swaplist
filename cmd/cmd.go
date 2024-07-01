@@ -1,11 +1,10 @@
 package cmd
 
-import "github.com/spf13/cobra"
+import (
+	"context"
 
-// nolint:gochecknoinits
-func init() {
-	cobra.EnableCommandSorting = false
-}
+	"github.com/spf13/cobra"
+)
 
 type command struct {
 	root *cobra.Command
@@ -33,15 +32,15 @@ func newCommand() (c *command, err error) {
 	return c, nil
 }
 
-func (c *command) Execute() (err error) {
-	return c.root.Execute()
+func (c *command) Execute(ctx context.Context) (err error) {
+	return c.root.ExecuteContext(ctx)
 }
 
 // Execute parses command line arguments and runs appropriate functions.
-func Execute() (err error) {
+func Execute(ctx context.Context) (err error) {
 	c, err := newCommand()
 	if err != nil {
 		return err
 	}
-	return c.Execute()
+	return c.Execute(ctx)
 }
