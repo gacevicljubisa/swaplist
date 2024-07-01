@@ -1,6 +1,6 @@
 # SwapList
 
-SwapList is a tool to track transactions of a swarm node. It provides functionalities to retrieve transaction sender addresses with timestamps from the Gnosis Chain using either the Chainstack API and Gnosis RPC or the Gnosis Scan API.
+SwapList is a tool to track addresses of created swarm nodes. It provides functionalities to retrieve transaction sender addresses with timestamps from the Gnosis Chain using either the Chainstack API and Gnosis Scan API or Gnosis RPC.
 
 ## Features
 
