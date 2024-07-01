@@ -15,19 +15,31 @@ import (
 )
 
 func (c *command) initFullCmd() (err error) {
-	var address string
+	var (
+		address    string
+		startBlock uint64
+		endBlock   uint64
+	)
 
 	cmd := &cobra.Command{
 		Use:   "full",
 		Short: "Retrieve transaction sender addresses with timestamps and extracts them from logs.",
 		Long: `Retrieve a list of all transaction sender addresses with timestamps and extract them from logs.
-	- Uses Chainstack API and Gnois RPC`,
+	- Uses Chainstack API and Gnois RPC
+	- Saves the list of addresses to a file and can be interrupted at any time.`,
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			log.Printf("Retrieving addresses for contract %s\n", address)
 
 			ctx := cmd.Context()
 
-			transactionChan, errorChan := full.GetTransactions(ctx, address)
+			client := full.NewClient()
+
+			transactionChan, errorChan := client.GetTransactions(ctx, &full.TransactionsRequest{
+				Address:    address,
+				StartBlock: startBlock,
+				EndBlock:   endBlock,
+			})
+
 			var wg sync.WaitGroup
 			wg.Add(1)
 
@@ -71,6 +83,8 @@ func (c *command) initFullCmd() (err error) {
 		},
 	}
 	cmd.Flags().StringVarP(&address, "address", "a", "0xc2d5a532cf69aa9a1378737d8ccdef884b6e7420", "Contract address on Gnosis Chain")
+	cmd.Flags().Uint64VarP(&startBlock, "start", "s", 0, "Start block number")
+	cmd.Flags().Uint64VarP(&endBlock, "end", "e", 99999999, "End block number")
 
 	c.root.AddCommand(cmd)
 

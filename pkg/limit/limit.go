@@ -3,20 +3,11 @@ package limit
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 
 	"github.com/gacevicljubisa/swaplist/pkg/transaction"
-)
-
-var (
-	ErrEmptyAddress = errors.New("address should not be empty")
-	ErrZeroAmount   = errors.New("amount should be greater than 0")
-	ErrMaxAmount    = errors.New("amount should not exceed 10000")
-	ErrEmptyAPIKey  = errors.New("apiKey should not be empty")
-	ErrInvalidOrder = errors.New("order should be either 'asc' or 'desc'")
+	"github.com/go-playground/validator/v10"
 )
 
 type transactionsResponse struct {
@@ -25,24 +16,71 @@ type transactionsResponse struct {
 	Result  []transaction.Transaction `json:"result"`
 }
 
-func GetTransactions(ctx context.Context, address string, amount uint32, order, apiKey string) ([]transaction.Transaction, error) {
-	if err := validateInputs(address, amount, order, apiKey); err != nil {
-		return nil, err
+type Client struct {
+	validate   *validator.Validate
+	httpClient *http.Client
+}
+
+type ClientOption func(*Client)
+
+func NewClient(opts ...ClientOption) *Client {
+	c := &Client{
+		validate: validator.New(),
+	}
+
+	for _, option := range opts {
+		option(c)
+	}
+
+	if c.httpClient == nil {
+		c.httpClient = &http.Client{}
+	}
+
+	return c
+}
+
+func WithHTTPClient(httpClient *http.Client) ClientOption {
+	return func(c *Client) {
+		c.httpClient = httpClient
+	}
+}
+
+type TransactionsRequest struct {
+	Address    string `validate:"required"`
+	Amount     uint32 `validate:"required,gte=1,lte=10000"`
+	Order      string `validate:"required,oneof=asc desc"`
+	StartBlock uint64
+	EndBlock   uint64
+	APIKey     string `validate:"required"`
+}
+
+func (c *Client) GetTransactions(ctx context.Context, tr *TransactionsRequest) ([]transaction.Transaction, error) {
+	if err := c.validate.Struct(tr); err != nil {
+		return nil, fmt.Errorf("error validating request: %w", err)
 	}
 
 	page := 0
-	if amount != 10000 {
+	if tr.Amount != 10000 {
 		page = 1
 	}
 
-	requestURL := fmt.Sprintf("https://api.gnosisscan.io/api?module=account&action=txlist&address=%s&page=%v&offset=%v&sort=%s&apikey=%s", address, page, amount, order, apiKey)
+	if tr.EndBlock == 0 {
+		tr.EndBlock = 99999999
+	}
+
+	if tr.StartBlock > tr.EndBlock {
+		return nil, fmt.Errorf("start block should be less than or equal to end block")
+	}
+
+	requestURL := fmt.Sprintf(`https://api.gnosisscan.io/api?module=account&action=txlist&address=%s&startblock=%v&endblock=%v&page=%v&offset=%v&sort=%s&apikey=%s`,
+		tr.Address, tr.StartBlock, tr.EndBlock, page, tr.Amount, tr.Order, tr.APIKey)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("error creating HTTP request: %w", err)
 	}
 
-	res, err := http.DefaultClient.Do(req)
+	res, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("error sending HTTP request: %w", err)
 	}
@@ -59,25 +97,4 @@ func GetTransactions(ctx context.Context, address string, amount uint32, order, 
 	}
 
 	return response.Result, nil
-}
-
-// validateInputs validates the input parameters
-func validateInputs(address string, amount uint32, order, apiKey string) error {
-	if address == "" {
-		return ErrEmptyAddress
-	}
-	if amount == 0 {
-		return ErrZeroAmount
-	}
-	if amount > 10000 {
-		return ErrMaxAmount
-	}
-	if apiKey == "" {
-		return ErrEmptyAPIKey
-	}
-	order = strings.ToLower(order)
-	if order != "asc" && order != "desc" {
-		return ErrInvalidOrder
-	}
-	return nil
 }

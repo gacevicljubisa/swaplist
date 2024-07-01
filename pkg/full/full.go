@@ -10,16 +10,63 @@ import (
 	"strconv"
 
 	"github.com/gacevicljubisa/swaplist/pkg/transaction"
+	"github.com/go-playground/validator/v10"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
 )
 
+type Client struct {
+	validate   *validator.Validate
+	httpClient *http.Client
+}
+
+type ClientOption func(*Client)
+
+func NewClient(opts ...ClientOption) *Client {
+	c := &Client{
+		validate: validator.New(),
+	}
+
+	for _, option := range opts {
+		option(c)
+	}
+
+	if c.httpClient == nil {
+		c.httpClient = &http.Client{}
+	}
+
+	return c
+}
+
+func WithHTTPClient(httpClient *http.Client) ClientOption {
+	return func(c *Client) {
+		c.httpClient = httpClient
+	}
+}
+
+type TransactionsRequest struct {
+	Address    string `validate:"required"`
+	StartBlock uint64
+	EndBlock   uint64
+}
+
 // GetTransactions fetches transactions and sends them to a channel
-func GetTransactions(ctx context.Context, address string) (<-chan transaction.Transaction, <-chan error) {
+func (c *Client) GetTransactions(ctx context.Context, tr *TransactionsRequest) (<-chan transaction.Transaction, <-chan error) {
 	transactionChan := make(chan transaction.Transaction, 10)
 	errorChan := make(chan error)
+
+	if tr.EndBlock == 0 {
+		tr.EndBlock = 99999999
+	}
+
+	if err := c.validateRequest(tr); err != nil {
+		defer close(transactionChan)
+		defer close(errorChan)
+		errorChan <- fmt.Errorf("error validating request: %w", err)
+		return nil, nil
+	}
 
 	go func() {
 		defer close(transactionChan)
@@ -32,18 +79,12 @@ func GetTransactions(ctx context.Context, address string) (<-chan transaction.Tr
 			return
 		}
 
-		header, err := client.HeaderByNumber(ctx, nil)
-		if err != nil {
-			errorChan <- fmt.Errorf("failed to retrieve the latest block number: %w", err)
-			return
-		}
-
-		contractAddress := common.HexToAddress(address)
+		contractAddress := common.HexToAddress(tr.Address)
 
 		query := ethereum.FilterQuery{
 			Addresses: []common.Address{contractAddress},
-			FromBlock: big.NewInt(0),
-			ToBlock:   header.Number,
+			FromBlock: new(big.Int).SetUint64(tr.StartBlock),
+			ToBlock:   new(big.Int).SetUint64(tr.EndBlock),
 		}
 
 		logs, err := client.FilterLogs(ctx, query)
@@ -52,10 +93,8 @@ func GetTransactions(ctx context.Context, address string) (<-chan transaction.Tr
 			return
 		}
 
-		httpClient := &http.Client{}
-
 		for _, vLog := range logs {
-			response, err := getTransactionByHash(ctx, httpClient, vLog.TxHash.Hex())
+			response, err := c.getTransactionByHash(ctx, vLog.TxHash.Hex())
 			if err != nil {
 				errorChan <- fmt.Errorf("failed to retrieve transaction: %w", err)
 				return
@@ -77,7 +116,7 @@ func GetTransactions(ctx context.Context, address string) (<-chan transaction.Tr
 	return transactionChan, errorChan
 }
 
-func getTransactionByHash(ctx context.Context, client *http.Client, transactionHash string) (string, error) {
+func (c *Client) getTransactionByHash(ctx context.Context, transactionHash string) (string, error) {
 	url := "https://nd-500-249-268.p2pify.com/512e720763b369ed620657f84d38d2af/"
 
 	payload := fmt.Sprintf(`{"id":1,"jsonrpc":"2.0","method":"eth_getTransactionByHash","params":["%s"]}`, transactionHash)
@@ -90,7 +129,7 @@ func getTransactionByHash(ctx context.Context, client *http.Client, transactionH
 	req.Header.Add("accept", "application/json")
 	req.Header.Add("content-type", "application/json")
 
-	res, err := client.Do(req)
+	res, err := c.httpClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("error sending HTTP request: %w", err)
 	}
@@ -103,6 +142,18 @@ func getTransactionByHash(ctx context.Context, client *http.Client, transactionH
 	}
 
 	return transactionResponse.Result.From, nil
+}
+
+func (c *Client) validateRequest(tr *TransactionsRequest) error {
+	if err := c.validate.Struct(tr); err != nil {
+		return err
+	}
+
+	if tr.StartBlock > tr.EndBlock {
+		return fmt.Errorf("start block should be less than or equal to end block")
+	}
+
+	return nil
 }
 
 type transactionResult struct {
