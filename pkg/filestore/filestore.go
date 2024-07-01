@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"swaplist/pkg/transaction"
+	"github.com/gacevicljubisa/swaplist/pkg/transaction"
 )
 
 // SaveTransactions saves a slice of transactions to a file in plain text format

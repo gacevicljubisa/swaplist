@@ -1,4 +1,4 @@
-module swaplist
+module github.com/gacevicljubisa/swaplist
 
 go 1.22
 

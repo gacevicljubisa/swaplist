@@ -3,8 +3,8 @@ package cmd
 import (
 	"fmt"
 
-	"swaplist/pkg/filestore"
-	"swaplist/pkg/limit"
+	"github.com/gacevicljubisa/swaplist/pkg/filestore"
+	"github.com/gacevicljubisa/swaplist/pkg/limit"
 
 	"github.com/spf13/cobra"
 )

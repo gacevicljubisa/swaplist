@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"log"
 
-	"swaplist/pkg/filestore"
-	"swaplist/pkg/full"
+	"github.com/gacevicljubisa/swaplist/pkg/filestore"
+	"github.com/gacevicljubisa/swaplist/pkg/full"
 
 	"github.com/spf13/cobra"
 )

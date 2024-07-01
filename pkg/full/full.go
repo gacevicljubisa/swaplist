@@ -5,12 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"math/big"
 	"net/http"
 	"strconv"
 
-	"swaplist/pkg/transaction"
+	"github.com/gacevicljubisa/swaplist/pkg/transaction"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
@@ -57,7 +56,7 @@ func GetTransactions(address string) (<-chan transaction.Transaction, <-chan err
 
 		for i, vLog := range logs {
 
-			response, err := getTransactionByHash(httpClient, vLog.TxHash.Hex())
+			response, err := getTransactionByHash(context.Background(), httpClient, vLog.TxHash.Hex())
 			if err != nil {
 				errorChan <- fmt.Errorf("failed to retrieve transaction: %w", err)
 				return
@@ -74,7 +73,7 @@ func GetTransactions(address string) (<-chan transaction.Transaction, <-chan err
 				TimeStamp: strconv.FormatUint(block.Time(), 10),
 			}
 
-			if i > 5 {
+			if i > 1000 {
 				break
 			}
 		}
@@ -83,13 +82,14 @@ func GetTransactions(address string) (<-chan transaction.Transaction, <-chan err
 	return transactionChan, errorChan
 }
 
-func getTransactionByHash(client *http.Client, transactionHash string) (string, error) {
+func getTransactionByHash(ctx context.Context, client *http.Client, transactionHash string) (string, error) {
 	url := "https://nd-500-249-268.p2pify.com/512e720763b369ed620657f84d38d2af/"
 
 	payload := fmt.Sprintf(`{"id":1,"jsonrpc":"2.0","method":"eth_getTransactionByHash","params":["%s"]}`, transactionHash)
-	req, err := http.NewRequest("POST", url, bytes.NewBufferString(payload))
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBufferString(payload))
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to create a new HTTP request: %w", err)
 	}
 
 	req.Header.Add("accept", "application/json")
@@ -97,18 +97,14 @@ func getTransactionByHash(client *http.Client, transactionHash string) (string, 
 
 	res, err := client.Do(req)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("error sending HTTP request: %w", err)
 	}
 	defer res.Body.Close()
 
-	body, err := io.ReadAll(res.Body)
-	if err != nil {
-		return "", err
-	}
-
 	var transactionResponse TransactionResponse
-	if err := json.Unmarshal(body, &transactionResponse); err != nil {
-		return "", err
+
+	if err = json.NewDecoder(res.Body).Decode(&transactionResponse); err != nil {
+		return "", fmt.Errorf("error decoding response body: %w", err)
 	}
 
 	return transactionResponse.Result.From, nil

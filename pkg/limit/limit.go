@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	"swaplist/pkg/transaction"
+	"github.com/gacevicljubisa/swaplist/pkg/transaction"
 )
 
 var (

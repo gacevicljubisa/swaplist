@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"swaplist/cmd"
+	"github.com/gacevicljubisa/swaplist/cmd"
 )
 
 func main() {
