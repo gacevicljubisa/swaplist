@@ -32,7 +32,7 @@ func SaveTransactions(transactions []transaction.Transaction, filePath string) e
 }
 
 // SaveTransactionsAsync writes transactions to a file as they are received from a channel
-func SaveTransactionsAsync(ctx context.Context, transactionChan <-chan transaction.Transaction, filePath string, doneChan chan<- struct{}) error {
+func SaveTransactionsAsync(ctx context.Context, transactionChan <-chan transaction.Transaction, filePath string) error {
 	file, err := os.Create(filePath)
 	if err != nil {
 		return fmt.Errorf("error creating file: %w", err)
@@ -45,7 +45,6 @@ func SaveTransactionsAsync(ctx context.Context, transactionChan <-chan transacti
 			return ctx.Err()
 		case transaction, ok := <-transactionChan:
 			if !ok {
-				doneChan <- struct{}{}
 				return nil
 			}
 

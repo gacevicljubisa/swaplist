@@ -27,14 +27,14 @@ func (c *command) initLimitCmd() (err error) {
 	- Can specify an API key.
 	- Uses Gnosis Scan API.`,
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
-			log.Printf("Retrieving %d addresses for contract %s in %s order...\n", amount, address, order)
-			// Call the function to retrieve addresses
+			log.Printf("retrieving %d addresses for contract %s in %s order...\n", amount, address, order)
+
 			response, err := limit.GetTransactions(cmd.Context(), address, amount, order, apikey)
 			if err != nil {
 				return fmt.Errorf("error retrieving transactions: %w", err)
 			}
 
-			log.Println("Number of transactions retrieved:", len(response))
+			log.Println("number of transactions retrieved:", len(response))
 
 			log.Println("saving to file...")
 

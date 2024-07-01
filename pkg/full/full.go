@@ -18,7 +18,7 @@ import (
 
 // GetTransactions fetches transactions and sends them to a channel
 func GetTransactions(ctx context.Context, address string) (<-chan transaction.Transaction, <-chan error) {
-	transactionChan := make(chan transaction.Transaction)
+	transactionChan := make(chan transaction.Transaction, 10)
 	errorChan := make(chan error)
 
 	go func() {

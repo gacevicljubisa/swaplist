@@ -1,7 +1,11 @@
 package cmd
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/gacevicljubisa/swaplist/pkg/filestore"
@@ -24,13 +28,19 @@ func (c *command) initFullCmd() (err error) {
 			ctx := cmd.Context()
 
 			transactionChan, errorChan := full.GetTransactions(ctx, address)
-			doneChan := make(chan struct{})
+			var wg sync.WaitGroup
+			wg.Add(1)
+
 			ticker := time.NewTicker(10 * time.Second)
 			defer ticker.Stop()
 
 			go func() {
-				if err := filestore.SaveTransactionsAsync(ctx, transactionChan, "transactions.txt", doneChan); err != nil {
-					log.Fatalf("Failed to save transactions: %v", err)
+				defer wg.Done()
+				if err := filestore.SaveTransactionsAsync(ctx, transactionChan, "transactions.txt"); err != nil {
+					if errors.Is(err, context.Canceled) {
+						log.Fatalf("not all transactions have been saved: %v", err)
+					}
+					log.Fatalf("failed to save transactions: %v", err)
 				}
 			}()
 
@@ -40,15 +50,13 @@ func (c *command) initFullCmd() (err error) {
 					if !ok {
 						errorChan = nil
 					} else {
-						log.Printf("Error: %v\n", err)
+						return fmt.Errorf("error retrieving transactions: %w", err)
 					}
-				case <-doneChan:
-					log.Println("All transactions have been saved.")
-					return
 				case <-ticker.C:
 					log.Println("processing...")
 				case <-ctx.Done():
-					log.Println("Shutting down...")
+					log.Println("shutting down...")
+					wg.Wait()
 					return ctx.Err()
 				}
 
@@ -57,6 +65,8 @@ func (c *command) initFullCmd() (err error) {
 				}
 			}
 
+			wg.Wait()
+			log.Println("all transactions have been saved.")
 			return nil
 		},
 	}
