@@ -15,8 +15,8 @@ func (c *command) initFullCmd() (err error) {
 
 	cmd := &cobra.Command{
 		Use:   "full",
-		Short: "Retrieve transaction sender addresses with timestamps",
-		Long: `Retrieve a list of all transaction sender addresses with timestamps.
+		Short: "Retrieve transaction sender addresses with timestamps and extracts them from logs.",
+		Long: `Retrieve a list of all transaction sender addresses with timestamps and extract them from logs.
 	- Uses Chainstack API and Gnois RPC`,
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			log.Printf("Retrieving addresses for contract %s\n", address)

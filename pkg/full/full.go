@@ -54,7 +54,7 @@ func GetTransactions(ctx context.Context, address string) (<-chan transaction.Tr
 
 		httpClient := &http.Client{}
 
-		for i, vLog := range logs {
+		for _, vLog := range logs {
 			response, err := getTransactionByHash(ctx, httpClient, vLog.TxHash.Hex())
 			if err != nil {
 				errorChan <- fmt.Errorf("failed to retrieve transaction: %w", err)
@@ -70,10 +70,6 @@ func GetTransactions(ctx context.Context, address string) (<-chan transaction.Tr
 			transactionChan <- transaction.Transaction{
 				From:      response,
 				TimeStamp: strconv.FormatUint(block.Time(), 10),
-			}
-
-			if i > 100 {
-				break
 			}
 		}
 	}()
@@ -100,7 +96,7 @@ func getTransactionByHash(ctx context.Context, client *http.Client, transactionH
 	}
 	defer res.Body.Close()
 
-	var transactionResponse TransactionResponse
+	var transactionResponse transactionResponse
 
 	if err = json.NewDecoder(res.Body).Decode(&transactionResponse); err != nil {
 		return "", fmt.Errorf("error decoding response body: %w", err)
@@ -109,7 +105,7 @@ func getTransactionByHash(ctx context.Context, client *http.Client, transactionH
 	return transactionResponse.Result.From, nil
 }
 
-type TransactionResult struct {
+type transactionResult struct {
 	Hash             string `json:"hash"`
 	Nonce            string `json:"nonce"`
 	BlockHash        string `json:"blockHash"`
@@ -127,8 +123,8 @@ type TransactionResult struct {
 	R                string `json:"r"`
 }
 
-type TransactionResponse struct {
+type transactionResponse struct {
 	Jsonrpc string            `json:"jsonrpc"`
-	Result  TransactionResult `json:"result"`
+	Result  transactionResult `json:"result"`
 	Id      int               `json:"id"`
 }
