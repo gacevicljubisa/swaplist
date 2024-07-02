@@ -11,18 +11,20 @@ import (
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/gacevicljubisa/swaplist/pkg/ethclient"
 )
 
 type Client struct {
-	validate *validator.Validate
-	endpoint string
+	validate        *validator.Validate
+	client          *ethclient.Client
+	blockRangeLimit uint32
 }
 
-func NewClient(endpoint string) *Client {
+func NewClient(client *ethclient.Client, blockRangeLimit uint32) *Client {
 	c := &Client{
-		validate: validator.New(),
-		endpoint: endpoint,
+		validate:        validator.New(),
+		client:          client,
+		blockRangeLimit: blockRangeLimit,
 	}
 
 	return c
@@ -64,13 +66,6 @@ func (c *Client) GetTransactions(ctx context.Context, tr *TransactionsRequest) (
 		defer close(transactionChan)
 		defer close(errorChan)
 
-		// Connect to the chain endpoint
-		client, err := ethclient.DialContext(ctx, c.endpoint)
-		if err != nil {
-			errorChan <- fmt.Errorf("failed to connect to the Ethereum client: %w", err)
-			return
-		}
-
 		contractAddress := common.HexToAddress(tr.Address)
 
 		query := ethereum.FilterQuery{
@@ -81,14 +76,14 @@ func (c *Client) GetTransactions(ctx context.Context, tr *TransactionsRequest) (
 
 		fmt.Printf("querying logs for address %s, from block %d to block %d\n", tr.Address, query.FromBlock, query.ToBlock)
 
-		logs, err := client.FilterLogs(ctx, query)
+		logs, err := c.client.FilterLogs(ctx, query)
 		if err != nil {
 			errorChan <- fmt.Errorf("failed to retrieve logs: %w", err)
 			return
 		}
 
-		for i, vLog := range logs {
-			tx, isPending, err := client.TransactionByHash(ctx, vLog.TxHash)
+		for _, vLog := range logs {
+			tx, isPending, err := c.client.TransactionByHash(ctx, vLog.TxHash)
 			if err != nil {
 				errorChan <- fmt.Errorf("failed to retrieve transaction: %w", err)
 				return
@@ -98,7 +93,7 @@ func (c *Client) GetTransactions(ctx context.Context, tr *TransactionsRequest) (
 				continue
 			}
 
-			block, err := client.BlockByHash(ctx, vLog.BlockHash)
+			block, err := c.client.BlockByHash(ctx, vLog.BlockHash)
 			if err != nil {
 				errorChan <- fmt.Errorf("failed to retrieve block: %w", err)
 				return
@@ -113,7 +108,7 @@ func (c *Client) GetTransactions(ctx context.Context, tr *TransactionsRequest) (
 				}
 			}
 
-			sender, err := client.TransactionSender(ctx, tx, vLog.BlockHash, index)
+			sender, err := c.client.TransactionSender(ctx, tx, vLog.BlockHash, index)
 			if err != nil {
 				errorChan <- fmt.Errorf("failed to retrieve sender: %w", err)
 				return
@@ -122,10 +117,6 @@ func (c *Client) GetTransactions(ctx context.Context, tr *TransactionsRequest) (
 			transactionChan <- transaction.Transaction{
 				From:      sender.Hex(),
 				TimeStamp: strconv.FormatUint(block.Time(), 10),
-			}
-
-			if i > 10 {
-				break
 			}
 		}
 	}()

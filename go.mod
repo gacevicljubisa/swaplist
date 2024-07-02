@@ -5,6 +5,7 @@ go 1.22
 require (
 	github.com/ethereum/go-ethereum v1.14.5
 	github.com/spf13/cobra v1.8.1
+	golang.org/x/time v0.5.0
 )
 
 require (
