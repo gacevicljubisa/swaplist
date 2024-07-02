@@ -23,7 +23,7 @@ make binary
 
 #### Limit
 
-Command that retrieves a limited number of transaction sender addresses with timestamps from the Gnosis Chain. 
+Command that retrieves a limited number of transaction sender addresses with timestamps from the Gnosis Chain.
 
 ```sh
 ./dist/swaplist limit
