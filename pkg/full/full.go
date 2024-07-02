@@ -16,11 +16,13 @@ import (
 
 type Client struct {
 	validate *validator.Validate
+	endpoint string
 }
 
-func NewClient() *Client {
+func NewClient(endpoint string) *Client {
 	c := &Client{
 		validate: validator.New(),
+		endpoint: endpoint,
 	}
 
 	return c
@@ -37,8 +39,18 @@ func (c *Client) GetTransactions(ctx context.Context, tr *TransactionsRequest) (
 	transactionChan := make(chan transaction.Transaction, 10)
 	errorChan := make(chan error)
 
-	if tr.EndBlock == 0 {
-		tr.EndBlock = 99999999
+	var toBlock *big.Int
+	var fromBlock *big.Int
+
+	if tr.EndBlock != 0 {
+		toBlock = big.NewInt(int64(tr.EndBlock))
+	}
+
+	if tr.StartBlock == 0 {
+		fromBlock = &big.Int{}
+		fromBlock = fromBlock.Sub(toBlock, big.NewInt(5))
+	} else {
+		fromBlock = big.NewInt(int64(tr.StartBlock))
 	}
 
 	if err := c.validateRequest(tr); err != nil {
@@ -52,8 +64,8 @@ func (c *Client) GetTransactions(ctx context.Context, tr *TransactionsRequest) (
 		defer close(transactionChan)
 		defer close(errorChan)
 
-		// Connect to the QuickNode endpoint
-		client, err := ethclient.DialContext(ctx, "https://wandering-evocative-gas.xdai.quiknode.pro/0f2525676e3ba76259ab3b72243f7f60334b0423/")
+		// Connect to the chain endpoint
+		client, err := ethclient.DialContext(ctx, c.endpoint)
 		if err != nil {
 			errorChan <- fmt.Errorf("failed to connect to the Ethereum client: %w", err)
 			return
@@ -63,9 +75,11 @@ func (c *Client) GetTransactions(ctx context.Context, tr *TransactionsRequest) (
 
 		query := ethereum.FilterQuery{
 			Addresses: []common.Address{contractAddress},
-			FromBlock: big.NewInt(19475474),
-			ToBlock:   big.NewInt(19475479),
+			FromBlock: fromBlock,
+			ToBlock:   toBlock,
 		}
+
+		fmt.Printf("querying logs for address %s, from block %d to block %d\n", tr.Address, query.FromBlock, query.ToBlock)
 
 		logs, err := client.FilterLogs(ctx, query)
 		if err != nil {
@@ -74,9 +88,7 @@ func (c *Client) GetTransactions(ctx context.Context, tr *TransactionsRequest) (
 		}
 
 		for i, vLog := range logs {
-			fmt.Println(vLog.TxHash.Hex())
-
-			tx, isPending, err := client.TransactionByHash(context.Background(), vLog.TxHash)
+			tx, isPending, err := client.TransactionByHash(ctx, vLog.TxHash)
 			if err != nil {
 				errorChan <- fmt.Errorf("failed to retrieve transaction: %w", err)
 				return
@@ -86,7 +98,7 @@ func (c *Client) GetTransactions(ctx context.Context, tr *TransactionsRequest) (
 				continue
 			}
 
-			block, err := client.BlockByHash(context.Background(), vLog.BlockHash)
+			block, err := client.BlockByHash(ctx, vLog.BlockHash)
 			if err != nil {
 				errorChan <- fmt.Errorf("failed to retrieve block: %w", err)
 				return
@@ -101,7 +113,7 @@ func (c *Client) GetTransactions(ctx context.Context, tr *TransactionsRequest) (
 				}
 			}
 
-			sender, err := client.TransactionSender(context.Background(), tx, vLog.BlockHash, index)
+			sender, err := client.TransactionSender(ctx, tx, vLog.BlockHash, index)
 			if err != nil {
 				errorChan <- fmt.Errorf("failed to retrieve sender: %w", err)
 				return

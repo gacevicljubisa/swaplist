@@ -10,6 +10,10 @@ import (
 	"github.com/go-playground/validator/v10"
 )
 
+const (
+	baseUrl = "https://api.gnosisscan.io/api"
+)
+
 type transactionsResponse struct {
 	Status  string                    `json:"status"`
 	Message string                    `json:"message"`
@@ -72,8 +76,8 @@ func (c *Client) GetTransactions(ctx context.Context, tr *TransactionsRequest) (
 		return nil, fmt.Errorf("start block should be less than or equal to end block")
 	}
 
-	requestURL := fmt.Sprintf(`https://api.gnosisscan.io/api?module=account&action=txlist&address=%s&startblock=%v&endblock=%v&page=%v&offset=%v&sort=%s&apikey=%s`,
-		tr.Address, tr.StartBlock, tr.EndBlock, page, tr.Amount, tr.Order, tr.APIKey)
+	requestURL := fmt.Sprintf(`%s?module=account&action=txlist&address=%s&startblock=%v&endblock=%v&page=%v&offset=%v&sort=%s&apikey=%s`,
+		baseUrl, tr.Address, tr.StartBlock, tr.EndBlock, page, tr.Amount, tr.Order, tr.APIKey)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
 	if err != nil {
