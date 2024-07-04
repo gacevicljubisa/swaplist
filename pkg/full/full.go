@@ -18,12 +18,12 @@ import (
 
 type Client struct {
 	validate        *validator.Validate
-	client          *ethclient.Client
+	client          ethclient.Client
 	cache           *blockcache.Cache
 	blockRangeLimit uint32
 }
 
-func NewClient(client *ethclient.Client, blockRangeLimit uint32) *Client {
+func NewClient(client ethclient.Client, blockRangeLimit uint32) *Client {
 	return &Client{
 		validate:        validator.New(),
 		client:          client,

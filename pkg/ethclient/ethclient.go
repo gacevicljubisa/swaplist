@@ -11,30 +11,38 @@ import (
 	"golang.org/x/time/rate"
 )
 
-type Client struct {
+type Client interface {
+	FilterLogs(ctx context.Context, q ethereum.FilterQuery) ([]types.Log, error)
+	TransactionByHash(ctx context.Context, hash common.Hash) (tx *types.Transaction, isPending bool, err error)
+	BlockByHash(ctx context.Context, hash common.Hash) (*types.Block, error)
+	TransactionSender(ctx context.Context, tx *types.Transaction, block common.Hash, index uint) (common.Address, error)
+	Close()
+}
+
+type client struct {
 	ethclient *ethclient.Client
 	limiter   *rate.Limiter
 	rawURL    string
 	mu        sync.Mutex
 }
 
-type ClientOption func(*Client)
+type ClientOption func(*client)
 
 // WithRateLimit sets the rate limit for the Ethereum client.
 func WithRateLimit(requestsPerSecond int) ClientOption {
-	return func(c *Client) {
+	return func(c *client) {
 		c.limiter = rate.NewLimiter(rate.Limit(requestsPerSecond), requestsPerSecond)
 	}
 }
 
 // NewClient creates a new Ethereum client with possible rate limiting.
-func NewClient(ctx context.Context, rawURL string, opts ...ClientOption) (*Client, error) {
+func NewClient(ctx context.Context, rawURL string, opts ...ClientOption) (*client, error) {
 	ethclient, err := ethclient.DialContext(ctx, rawURL)
 	if err != nil {
 		return nil, err
 	}
 
-	c := &Client{
+	c := &client{
 		ethclient: ethclient,
 		rawURL:    rawURL,
 		limiter:   nil,
@@ -48,11 +56,11 @@ func NewClient(ctx context.Context, rawURL string, opts ...ClientOption) (*Clien
 }
 
 // Close closes the underlying Ethereum client.
-func (c *Client) Close() {
+func (c *client) Close() {
 	c.ethclient.Close()
 }
 
-func (c *Client) FilterLogs(ctx context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
+func (c *client) FilterLogs(ctx context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -63,7 +71,7 @@ func (c *Client) FilterLogs(ctx context.Context, q ethereum.FilterQuery) ([]type
 	return c.ethclient.FilterLogs(ctx, q)
 }
 
-func (c *Client) TransactionByHash(ctx context.Context, hash common.Hash) (tx *types.Transaction, isPending bool, err error) {
+func (c *client) TransactionByHash(ctx context.Context, hash common.Hash) (tx *types.Transaction, isPending bool, err error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -74,7 +82,7 @@ func (c *Client) TransactionByHash(ctx context.Context, hash common.Hash) (tx *t
 	return c.ethclient.TransactionByHash(ctx, hash)
 }
 
-func (c *Client) BlockByHash(ctx context.Context, hash common.Hash) (*types.Block, error) {
+func (c *client) BlockByHash(ctx context.Context, hash common.Hash) (*types.Block, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -85,7 +93,7 @@ func (c *Client) BlockByHash(ctx context.Context, hash common.Hash) (*types.Bloc
 	return c.ethclient.BlockByHash(ctx, hash)
 }
 
-func (c *Client) TransactionSender(ctx context.Context, tx *types.Transaction, block common.Hash, index uint) (common.Address, error) {
+func (c *client) TransactionSender(ctx context.Context, tx *types.Transaction, block common.Hash, index uint) (common.Address, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -97,7 +105,7 @@ func (c *Client) TransactionSender(ctx context.Context, tx *types.Transaction, b
 }
 
 // applyRateLimit checks if the limiter is set and applies the rate limit.
-func (c *Client) applyRateLimit(ctx context.Context) error {
+func (c *client) applyRateLimit(ctx context.Context) error {
 	if c.limiter != nil {
 		return c.limiter.Wait(ctx)
 	}
