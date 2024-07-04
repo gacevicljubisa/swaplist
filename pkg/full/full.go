@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"math/big"
 	"strconv"
-	"sync"
 
+	"github.com/gacevicljubisa/swaplist/pkg/blockcache"
 	"github.com/gacevicljubisa/swaplist/pkg/transaction"
 	"github.com/go-playground/validator/v10"
 
@@ -19,9 +19,8 @@ import (
 type Client struct {
 	validate        *validator.Validate
 	client          *ethclient.Client
-	lastBlock       *types.Block
+	cache           *blockcache.Cache
 	blockRangeLimit uint32
-	mutex           sync.Mutex // To protect lastBlock
 }
 
 func NewClient(client *ethclient.Client, blockRangeLimit uint32) *Client {
@@ -29,6 +28,7 @@ func NewClient(client *ethclient.Client, blockRangeLimit uint32) *Client {
 		validate:        validator.New(),
 		client:          client,
 		blockRangeLimit: blockRangeLimit,
+		cache:           blockcache.New(),
 	}
 }
 
@@ -163,18 +163,17 @@ func (c *Client) fetchLogs(ctx context.Context, query ethereum.FilterQuery, logs
 }
 
 func (c *Client) getBlockByHash(ctx context.Context, blockHash common.Hash) (*types.Block, error) {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-
-	if c.lastBlock != nil && c.lastBlock.Hash() == blockHash {
-		return c.lastBlock, nil
+	if cachedBlock := c.cache.Get(blockHash); cachedBlock != nil {
+		return cachedBlock, nil
 	}
 
 	block, err := c.client.BlockByHash(ctx, blockHash)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to retrieve block: %w", err)
 	}
-	c.lastBlock = block
+
+	c.cache.Set(block)
+
 	return block, nil
 }
 
