@@ -27,13 +27,6 @@ func WithRateLimit(requestsPerSecond int) ClientOption {
 	}
 }
 
-// // WithRateLimit sets the rate limit for the Ethereum client.
-// func WithRateLimit(limiter *rate.Limiter) ClientOption {
-// 	return func(c *Client) {
-// 		c.limiter = limiter
-// 	}
-// }
-
 // NewClient creates a new Ethereum client with possible rate limiting.
 func NewClient(ctx context.Context, rawURL string, opts ...ClientOption) (*Client, error) {
 	ethclient, err := ethclient.DialContext(ctx, rawURL)
