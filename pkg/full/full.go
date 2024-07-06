@@ -1,130 +1,187 @@
 package full
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"math/big"
-	"net/http"
 	"strconv"
 
+	"github.com/gacevicljubisa/swaplist/pkg/blockcache"
 	"github.com/gacevicljubisa/swaplist/pkg/transaction"
+	"github.com/go-playground/validator/v10"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/gacevicljubisa/swaplist/pkg/ethclient"
 )
 
+type Client struct {
+	validate        *validator.Validate
+	client          *ethclient.Client
+	cache           *blockcache.Cache
+	blockRangeLimit uint32
+}
+
+func NewClient(client *ethclient.Client, blockRangeLimit uint32) *Client {
+	return &Client{
+		validate:        validator.New(),
+		client:          client,
+		blockRangeLimit: blockRangeLimit,
+		cache:           blockcache.New(),
+	}
+}
+
+type TransactionsRequest struct {
+	Address    string `validate:"required"`
+	StartBlock uint64
+	EndBlock   uint64
+}
+
 // GetTransactions fetches transactions and sends them to a channel
-func GetTransactions(ctx context.Context, address string) (<-chan transaction.Transaction, <-chan error) {
+func (c *Client) GetTransactions(ctx context.Context, tr *TransactionsRequest) (<-chan transaction.Transaction, <-chan error) {
 	transactionChan := make(chan transaction.Transaction, 10)
 	errorChan := make(chan error)
 
-	go func() {
-		defer close(transactionChan)
-		defer close(errorChan)
+	if err := c.validateRequest(tr); err != nil {
+		errorChan <- fmt.Errorf("error validating request: %w", err)
+		close(transactionChan)
+		close(errorChan)
+		return transactionChan, errorChan
+	}
 
-		// Connect to the Gnosis Chain endpoint
-		client, err := ethclient.DialContext(ctx, "https://rpc.gnosischain.com")
+	var toBlock, fromBlock *big.Int
+	if tr.EndBlock != 0 {
+		toBlock = big.NewInt(int64(tr.EndBlock))
+	}
+	if tr.StartBlock == 0 {
+		fromBlock = new(big.Int).Sub(toBlock, big.NewInt(5))
+	} else {
+		fromBlock = big.NewInt(int64(tr.StartBlock))
+	}
+
+	go c.processTransactions(ctx, tr.Address, fromBlock, toBlock, transactionChan, errorChan)
+	return transactionChan, errorChan
+}
+
+func (c *Client) processTransactions(ctx context.Context, address string, fromBlock, toBlock *big.Int, transactionChan chan transaction.Transaction, errorChan chan error) {
+	defer close(transactionChan)
+	defer close(errorChan)
+
+	contractAddress := common.HexToAddress(address)
+	query := ethereum.FilterQuery{
+		Addresses: []common.Address{contractAddress},
+		FromBlock: fromBlock,
+		ToBlock:   toBlock,
+	}
+
+	logsChan := make(chan types.Log, 10)
+	go c.fetchLogs(ctx, query, logsChan, errorChan)
+
+	for vLog := range logsChan {
+		tx, isPending, err := c.client.TransactionByHash(ctx, vLog.TxHash)
 		if err != nil {
-			errorChan <- fmt.Errorf("failed to connect to the Ethereum client: %w", err)
+			errorChan <- fmt.Errorf("failed to retrieve transaction: %w", err)
+			return
+		}
+		if isPending {
+			continue
+		}
+
+		block, err := c.getBlockByHash(ctx, vLog.BlockHash)
+		if err != nil {
+			errorChan <- fmt.Errorf("failed to retrieve block: %w", err)
 			return
 		}
 
-		header, err := client.HeaderByNumber(ctx, nil)
+		index, err := c.findTransactionIndex(block, tx)
 		if err != nil {
-			errorChan <- fmt.Errorf("failed to retrieve the latest block number: %w", err)
+			errorChan <- fmt.Errorf("failed to find transaction index: %w", err)
 			return
 		}
 
-		contractAddress := common.HexToAddress(address)
-
-		query := ethereum.FilterQuery{
-			Addresses: []common.Address{contractAddress},
-			FromBlock: big.NewInt(0),
-			ToBlock:   header.Number,
+		sender, err := c.client.TransactionSender(ctx, tx, vLog.BlockHash, index)
+		if err != nil {
+			errorChan <- fmt.Errorf("failed to retrieve sender: %w", err)
+			return
 		}
 
-		logs, err := client.FilterLogs(ctx, query)
+		transactionChan <- transaction.Transaction{
+			From:      sender.Hex(),
+			TimeStamp: strconv.FormatUint(block.Time(), 10),
+		}
+	}
+}
+
+func (c *Client) validateRequest(tr *TransactionsRequest) error {
+	if err := c.validate.Struct(tr); err != nil {
+		return err
+	}
+	if tr.StartBlock > tr.EndBlock {
+		return fmt.Errorf("start block should be less than or equal to end block")
+	}
+	return nil
+}
+
+func (c *Client) fetchLogs(ctx context.Context, query ethereum.FilterQuery, logsChan chan<- types.Log, errorChan chan error) {
+	defer close(logsChan)
+
+	maxBlocks := uint64(c.blockRangeLimit)
+	startBlock := query.FromBlock.Uint64()
+	endBlock := query.ToBlock.Uint64()
+
+	for start := startBlock; start <= endBlock; start += maxBlocks {
+		end := start + maxBlocks - 1
+		if end > endBlock {
+			end = endBlock
+		}
+
+		chunkQuery := ethereum.FilterQuery{
+			FromBlock: new(big.Int).SetUint64(start),
+			ToBlock:   new(big.Int).SetUint64(end),
+			Addresses: query.Addresses,
+			Topics:    query.Topics,
+		}
+
+		fmt.Printf("querying logs from block %d to block %d\n", chunkQuery.FromBlock.Uint64(), chunkQuery.ToBlock.Uint64())
+
+		logs, err := c.client.FilterLogs(ctx, chunkQuery)
 		if err != nil {
 			errorChan <- fmt.Errorf("failed to retrieve logs: %w", err)
 			return
 		}
 
-		httpClient := &http.Client{}
-
-		for _, vLog := range logs {
-			response, err := getTransactionByHash(ctx, httpClient, vLog.TxHash.Hex())
-			if err != nil {
-				errorChan <- fmt.Errorf("failed to retrieve transaction: %w", err)
+		for _, log := range logs {
+			select {
+			case logsChan <- log:
+			case <-ctx.Done():
+				errorChan <- ctx.Err()
 				return
-			}
-
-			block, err := client.BlockByHash(ctx, vLog.BlockHash)
-			if err != nil {
-				errorChan <- fmt.Errorf("failed to retrieve block: %w", err)
-				return
-			}
-
-			transactionChan <- transaction.Transaction{
-				From:      response,
-				TimeStamp: strconv.FormatUint(block.Time(), 10),
 			}
 		}
-	}()
-
-	return transactionChan, errorChan
+	}
 }
 
-func getTransactionByHash(ctx context.Context, client *http.Client, transactionHash string) (string, error) {
-	url := "https://nd-500-249-268.p2pify.com/512e720763b369ed620657f84d38d2af/"
+func (c *Client) getBlockByHash(ctx context.Context, blockHash common.Hash) (*types.Block, error) {
+	if cachedBlock := c.cache.Get(blockHash); cachedBlock != nil {
+		return cachedBlock, nil
+	}
 
-	payload := fmt.Sprintf(`{"id":1,"jsonrpc":"2.0","method":"eth_getTransactionByHash","params":["%s"]}`, transactionHash)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBufferString(payload))
+	block, err := c.client.BlockByHash(ctx, blockHash)
 	if err != nil {
-		return "", fmt.Errorf("failed to create a new HTTP request: %w", err)
+		return nil, fmt.Errorf("failed to retrieve block: %w", err)
 	}
 
-	req.Header.Add("accept", "application/json")
-	req.Header.Add("content-type", "application/json")
+	c.cache.Set(block)
 
-	res, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("error sending HTTP request: %w", err)
-	}
-	defer res.Body.Close()
-
-	var transactionResponse transactionResponse
-
-	if err = json.NewDecoder(res.Body).Decode(&transactionResponse); err != nil {
-		return "", fmt.Errorf("error decoding response body: %w", err)
-	}
-
-	return transactionResponse.Result.From, nil
+	return block, nil
 }
 
-type transactionResult struct {
-	Hash             string `json:"hash"`
-	Nonce            string `json:"nonce"`
-	BlockHash        string `json:"blockHash"`
-	BlockNumber      string `json:"blockNumber"`
-	TransactionIndex string `json:"transactionIndex"`
-	From             string `json:"from"`
-	To               string `json:"to"`
-	Value            string `json:"value"`
-	GasPrice         string `json:"gasPrice"`
-	Gas              string `json:"gas"`
-	Input            string `json:"input"`
-	Type             string `json:"type"`
-	V                string `json:"v"`
-	S                string `json:"s"`
-	R                string `json:"r"`
-}
-
-type transactionResponse struct {
-	Jsonrpc string            `json:"jsonrpc"`
-	Result  transactionResult `json:"result"`
-	Id      int               `json:"id"`
+func (c *Client) findTransactionIndex(block *types.Block, tx *types.Transaction) (uint, error) {
+	for idx, bTx := range block.Transactions() {
+		if bTx.Hash() == tx.Hash() {
+			return uint(idx), nil
+		}
+	}
+	return 0, fmt.Errorf("transaction not found in block")
 }

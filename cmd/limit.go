@@ -12,10 +12,12 @@ import (
 
 func (c *command) initLimitCmd() (err error) {
 	var (
-		address string
-		amount  uint32
-		order   string
-		apikey  string
+		address    string
+		amount     uint32
+		startBlock uint64
+		endBlock   uint64
+		order      string
+		apikey     string
 	)
 
 	cmd := &cobra.Command{
@@ -29,7 +31,16 @@ func (c *command) initLimitCmd() (err error) {
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			log.Printf("retrieving %d addresses for contract %s in %s order...\n", amount, address, order)
 
-			response, err := limit.GetTransactions(cmd.Context(), address, amount, order, apikey)
+			client := limit.NewClient()
+
+			response, err := client.GetTransactions(cmd.Context(), &limit.TransactionsRequest{
+				Address:    address,
+				Amount:     amount,
+				Order:      order,
+				StartBlock: startBlock,
+				EndBlock:   endBlock,
+				APIKey:     apikey,
+			})
 			if err != nil {
 				return fmt.Errorf("error retrieving transactions: %w", err)
 			}
@@ -50,6 +61,8 @@ func (c *command) initLimitCmd() (err error) {
 	cmd.Flags().Uint32VarP(&amount, "number", "n", 1000, "Number of addresses to retrieve (0-10000)")
 	cmd.Flags().StringVarP(&order, "order", "o", "asc", "Order to retrieve addresses (asc/desc)")
 	cmd.Flags().StringVarP(&apikey, "apikey", "k", "DEN397GUGXKJN6T14HU2W8MTZVVMXZ57AU", "API key for Gnosis Scan")
+	cmd.Flags().Uint64VarP(&startBlock, "start", "s", 0, "Start block number")
+	cmd.Flags().Uint64VarP(&endBlock, "end", "e", 99999999, "End block number")
 
 	c.root.AddCommand(cmd)
 
